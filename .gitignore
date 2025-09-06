@@ -2,3 +2,6 @@ node_modules/
 lib/
 # Cache file of eslint
 .eslintcache
+
+# Project-specific documentation
+CLAUDE.md

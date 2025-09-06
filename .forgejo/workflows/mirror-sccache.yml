@@ -1,0 +1,163 @@
+---
+name: Mirror sccache binaries
+on:
+  schedule:
+    # Check for new releases daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Allow manual triggering
+  push:
+    paths:
+      - '.forgejo/workflows/mirror-sccache.yml'
+
+jobs:
+  mirror-sccache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get sccache releases from GitHub
+        id: get-releases
+        run: |
+          echo "Fetching sccache releases from GitHub..."
+          curl -s "https://api.github.com/repos/mozilla/sccache/releases" > releases.json
+          
+          # Extract version tags and reverse order (oldest first)
+          jq -r '.[].tag_name' releases.json | tac > versions.txt
+          
+          # Create arrays for download
+          platforms=("x86_64-unknown-linux-musl" "aarch64-unknown-linux-musl" "x86_64-apple-darwin" "aarch64-apple-darwin" "x86_64-pc-windows-msvc")
+          
+          echo "Found $(wc -l < versions.txt) releases"
+          head -5 versions.txt
+
+      - name: Check existing packages
+        id: check-existing
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          FORGEJO_URL: ${{ github.server_url }}
+        run: |
+          echo "Checking existing packages on Forgejo..."
+          
+          # Get current repository owner from environment
+          OWNER="${{ github.repository_owner }}"
+          PACKAGE_NAME="sccache"
+          
+          echo "Checking packages for owner: $OWNER"
+          
+          # List existing packages (this endpoint might vary, using generic approach)
+          existing_packages=""
+          for version in $(cat versions.txt); do
+            # Check if this version exists by trying to access it
+            response=$(curl -s -w "%{http_code}" -o /dev/null \
+              -u "${{ github.actor }}:${FORGEJO_TOKEN}" \
+              "${FORGEJO_URL}/api/packages/${OWNER}/generic/${PACKAGE_NAME}/${version}/sccache-${version}-x86_64-unknown-linux-musl.tar.gz")
+            
+            if [ "$response" = "200" ]; then
+              echo "Version $version exists"
+              echo "$version" >> existing_versions.txt
+            else
+              echo "Version $version missing"
+              echo "$version" >> missing_versions.txt
+            fi
+          done
+          
+          # Create missing versions file if it doesn't exist
+          touch missing_versions.txt
+          
+          echo "Missing versions:"
+          cat missing_versions.txt || echo "None missing"
+
+      - name: Download and upload missing binaries
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          FORGEJO_URL: ${{ github.server_url }}
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          PACKAGE_NAME="sccache"
+          
+          # Define platforms to mirror
+          platforms=(
+            "x86_64-unknown-linux-musl"
+            "aarch64-unknown-linux-musl" 
+            "x86_64-apple-darwin"
+            "aarch64-apple-darwin"
+            "x86_64-pc-windows-msvc"
+          )
+          
+          if [ ! -f missing_versions.txt ] || [ ! -s missing_versions.txt ]; then
+            echo "No missing versions to process"
+            exit 0
+          fi
+          
+          echo "Processing missing versions..."
+          
+          while read -r version; do
+            echo "Processing version: $version"
+            
+            for platform in "${platforms[@]}"; do
+              # Determine file extension
+              if [[ "$platform" == *"windows"* ]]; then
+                extension="zip"
+              else
+                extension="tar.gz"
+              fi
+              
+              filename="sccache-${version}-${platform}.${extension}"
+              download_url="https://github.com/mozilla/sccache/releases/download/${version}/${filename}"
+              sha256_url="${download_url}.sha256"
+              
+              echo "Downloading $filename..."
+              
+              # Download binary and checksum
+              if curl -fLs "$download_url" -o "$filename"; then
+                echo "Downloaded $filename"
+                
+                # Download and upload checksum file too
+                if curl -fLs "$sha256_url" -o "${filename}.sha256"; then
+                  echo "Downloaded checksum for $filename"
+                fi
+                
+                # Upload binary to Forgejo packages
+                echo "Uploading $filename to Forgejo packages..."
+                upload_url="${FORGEJO_URL}/api/packages/${OWNER}/generic/${PACKAGE_NAME}/${version}/${filename}"
+                
+                if curl -s -u "${{ github.actor }}:${FORGEJO_TOKEN}" \
+                     --upload-file "$filename" \
+                     "$upload_url"; then
+                  echo "Successfully uploaded $filename"
+                  
+                  # Also upload the checksum file
+                  if [ -f "${filename}.sha256" ]; then
+                    checksum_upload_url="${FORGEJO_URL}/api/packages/${OWNER}/generic/${PACKAGE_NAME}/${version}/${filename}.sha256"
+                    curl -s -u "${{ github.actor }}:${FORGEJO_TOKEN}" \
+                         --upload-file "${filename}.sha256" \
+                         "$checksum_upload_url"
+                    echo "Successfully uploaded ${filename}.sha256"
+                  fi
+                else
+                  echo "Failed to upload $filename"
+                fi
+                
+                # Clean up downloaded files
+                rm -f "$filename" "${filename}.sha256"
+              else
+                echo "Failed to download $filename, skipping..."
+              fi
+            done
+          done < missing_versions.txt
+          
+          echo "Mirroring complete!"
+
+      - name: Summary
+        run: |
+          echo "## Mirror Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Total releases checked: $(wc -l < versions.txt)" >> $GITHUB_STEP_SUMMARY
+          if [ -f missing_versions.txt ]; then
+            echo "- Missing versions processed: $(wc -l < missing_versions.txt)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Missing versions processed: 0" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "- Repository: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Package registry: ${{ github.server_url }}/api/packages/${{ github.repository_owner }}/generic/sccache/" >> $GITHUB_STEP_SUMMARY
