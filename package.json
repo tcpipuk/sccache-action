@@ -1,7 +1,7 @@
 {
   "name": "sccache-action",
-  "version": "0.0.9",
-  "description": "Github Action for Sccache",
+  "version": "1.0.0",
+  "description": "Forgejo Action for Sccache",
   "main": "dist/setup/index.js",
   "engines": {
     "node": ">=16"
@@ -16,7 +16,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mozilla-actions/sccache-action.git"
+    "url": "git+https://git.tomfos.tr/tom/sccache-action.git"
   },
   "keywords": [
     "sccache"
@@ -24,9 +24,9 @@
   "author": "",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/mozilla-actions/sccache-action/issues"
+    "url": "https://git.tomfos.tr/tom/sccache-action/issues"
   },
-  "homepage": "https://github.com/mozilla-actions/sccache-action#readme",
+  "homepage": "https://git.tomfos.tr/tom/sccache-action#readme",
   "dependencies": {
     "@actions/core": "^1.11.1",
     "@actions/github": "^6.0.0",

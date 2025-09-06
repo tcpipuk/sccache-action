@@ -1,0 +1,65 @@
+---
+name: Test sccache action
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-action:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test sccache action
+        uses: ./
+        # No version specified to test automatic detection
+
+      - name: Verify sccache is available
+        run: |
+          echo "Testing sccache installation..."
+          which sccache
+          sccache --version
+          echo "sccache path: $SCCACHE_PATH"
+
+          # Verify the binary works
+          if sccache --show-stats; then
+            echo "✅ sccache is working correctly"
+          else
+            echo "❌ sccache failed to run"
+            exit 1
+          fi
+
+      - name: Test sccache with a simple compilation
+        run: |
+          echo "Testing sccache with compilation..."
+
+          # Create a simple C program
+          cat > test.c << 'EOF'
+          #include <stdio.h>
+          int main() {
+              printf("Hello from sccache test!\n");
+              return 0;
+          }
+          EOF
+
+          # Set up sccache for gcc
+          export CC="sccache gcc"
+
+          # Clear any existing stats
+          sccache --zero-stats
+
+          # Compile the program
+          $CC -o test test.c
+
+          # Run the program to verify it works
+          ./test
+
+          # Show sccache statistics
+          echo "Final sccache statistics:"
+          sccache --show-stats
+
+          echo "✅ End-to-end test completed successfully"

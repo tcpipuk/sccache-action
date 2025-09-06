@@ -1,124 +1,149 @@
-# sccache-action
+# sccache-action (Forgejo fork)
 
-The [sccache](https://github.com/mozilla/sccache/
-) action can be used in GitHub Actions workflows to integrate sccache into the build process. The sccache action is a step in a workflow that can be used to cache compilation results for subsequent builds, reducing the build time and speeding up the overall development process.
+This is a Forgejo-optimised fork of Mozilla's
+[sccache-action](https://github.com/mozilla-actions/sccache-action) that eliminates GitHub API
+dependencies and rate limiting issues. It's designed specifically for Forgejo environments and
+won't work on GitHub - use the original Mozilla action for GitHub workflows.
 
-sccache can easily use GitHub actions cache with almost no configuration.
+The action integrates [sccache](https://github.com/mozilla/sccache/) into your Forgejo Actions
+workflows to cache compilation results, significantly reducing build times across subsequent runs.
 
-This action is available on:
-https://github.com/marketplace/actions/sccache-action
+## How it works
+
+Rather than downloading binaries directly from GitHub (which requires authentication and hits rate
+limits), this fork:
+
+1. **Mirrors sccache releases** automatically using a Forgejo workflow that checks for updates and
+   stores binaries in your instance's package registry
+2. **Detects versions dynamically** by querying your Forgejo instance's package API to find the
+   latest available version
+3. **Downloads locally** from your own package registry, avoiding external dependencies entirely
+
+The action automatically detects which Forgejo instance it's running on and uses the appropriate
+package registry - no configuration needed.
 
 ## Usage
 
-Just copy and paste the following in your GitHub action:
+Add this step to your Forgejo Actions workflow:
 
-### Use the latest version of sccache if no version is specified
+### Automatic version detection (recommended)
 
+The action automatically finds the latest sccache version available in your package registry:
+
+```yaml
+- name: Setup sccache
+  uses: your-forgejo-instance/owner/sccache-action@v1
 ```
-- name: Run sccache-cache
-  uses: mozilla-actions/sccache-action@v0.0.9
+
+### Specify a particular version
+
+If you need a specific version:
+
+```yaml
+- name: Setup sccache
+  uses: your-forgejo-instance/owner/sccache-action@v1
+  with:
+    version: "v0.10.0"
 ```
 
-### Conditionally run cache and enable it
+### Custom registry configuration
 
+To use a different Forgejo instance or repository for sccache packages:
+
+```yaml
+- name: Setup sccache
+  uses: your-forgejo-instance/owner/sccache-action@v1
+  with:
+    server: "https://your-forgejo.example.com"
+    owner: "your-owner"
 ```
-- name: Run sccache-cache only on non-release runs
-  if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
-  uses: mozilla-actions/sccache-action@v0.0.9
-- name: Set Rust caching env vars only on non-release runs
-  if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
+
+**For action maintainers**: You can change the defaults by editing the `action.yml` file and
+updating the `server` and `owner` default values. This allows you to fork the
+action and point it to your own package registry without requiring users to specify these inputs.
+
+### Conditional caching
+
+Only enable caching for certain workflow types:
+
+```yaml
+- name: Setup sccache for development builds
+  if: github.event_name != 'release'
+  uses: your-forgejo-instance/owner/sccache-action@v1
+
+- name: Configure Rust to use sccache
+  if: github.event_name != 'release'
   run: |
     echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
     echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 ```
 
-### Specify a given version of sccache
+### View compilation statistics
 
-Versions prior to sccache v0.10.0 probably will not work.
+The action automatically creates a post-run step to show stats. You can also check stats manually:
 
-```
-- name: Run sccache-cache
-  uses: mozilla-actions/sccache-action@v0.0.9
-  with:
-    version: "v0.10.0"
-```
-
-### To get the execution stats
-
-Note that using the previous declaration will automatically create a
-`Post Run sccache-cache` task.
-
-```
-- name: Run sccache stat for check
-  shell: bash
+```yaml
+- name: Show sccache statistics
   run: ${SCCACHE_PATH} --show-stats
 ```
 
-### disable stats report
+### Disable automatic stats reporting
 
-```
-- name: Run sccache-cache
-  uses: mozilla-actions/sccache-action
+```yaml
+- name: Setup sccache
+  uses: your-forgejo-instance/owner/sccache-action@v1
   with:
     disable_annotations: true
 ```
 
-### Rust code
+## Language-specific configuration
 
-For Rust code, the following environment variables should be set:
+### Rust projects
 
-```
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
-```
+Enable sccache for Rust compilation:
 
-### C/C++ code
-
-For C/C++ code, the following environment variables should be set:
-
-```
-    env:
-      SCCACHE_GHA_ENABLED: "true"
+```yaml
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 ```
 
-With cmake, add the following argument:
+### C/C++ projects
 
-```
--DCMAKE_C_COMPILER_LAUNCHER=sccache
--DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-```
+For C/C++ projects, enable the cache and configure your build system:
 
-With configure, call it with:
-```
-# With gcc
-./configure CC="sccache gcc" CXX="sccache gcc"
-# With clang
-./configure CC="sccache clang" CXX="sccache clang"
+```yaml
+env:
+  SCCACHE_GHA_ENABLED: "true"
 ```
 
-## Using on GitHub Enterprise Server (GHES)
+**With CMake:**
 
-When using the action on GitHub Enterprise Server installations a valid GitHub.com token must be provided.
-
-```
-- name: Run sccache-cache
-  uses: mozilla-actions/sccache-action@v0.0.9
-  with:
-    token: ${{ secrets.MY_GITHUB_TOKEN }}
+```bash
+cmake -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
 ```
 
-Note that using https://github.com/actions/create-github-app-token is a better option than storing a fixed token in the repo secrets.
+**With configure scripts:**
 
-## Prepare a new release
+```bash
+# Using GCC
+./configure CC="sccache gcc" CXX="sccache g++"
+# Using Clang
+./configure CC="sccache clang" CXX="sccache clang++"
+```
 
-1. Update the example in README.md
-1. Update version in `package.json`
-1. Run `npm i --package-lock-only`
-1. Run `npm run build`
-1. Commit and push the local changes
-1. Tag a new release (vX.X.X)
-1. Create a new release in github
+## Setting up the mirroring workflow
+
+To use this action, you'll need the mirroring workflow that downloads sccache releases and stores
+them in your package registry. The workflow is included in this repository at
+`.forgejo/workflows/mirror-sccache.yml`.
+
+1. Fork this repository to your Forgejo instance
+2. The mirroring workflow runs automatically daily and whenever you push changes
+3. It checks for new sccache releases and mirrors missing versions to your package registry
+4. Your workflows can then use the action with automatic version detection
+
+The mirroring workflow requires a `FORGEJO_TOKEN` secret with package write permissions.
 
 ## License
 

@@ -20,23 +20,72 @@ import {
   cacheDir,
   find
 } from '@actions/tool-cache';
-import {getOctokit} from '@actions/github';
 
 import * as fs from 'fs';
 
 import * as crypto from 'crypto';
 
+/**
+ * Get the latest sccache version from the Forgejo package registry
+ * @returns Latest version tag (e.g. "v0.10.0")
+ */
+async function getLatestVersionFromRegistry(): Promise<string> {
+  // Get server and owner from inputs (with defaults from action.yml) or environment
+  const serverUrl =
+    core.getInput('server') || process.env.GITHUB_SERVER_URL || '';
+  const owner = core.getInput('owner');
+
+  if (!serverUrl) {
+    throw new Error(
+      'Unable to determine server URL. Either specify server input or run in Forgejo environment.'
+    );
+  }
+
+  try {
+    // Use the proper Forgejo packages API
+    const apiUrl = `${serverUrl}/api/v1/packages/${owner}?type=generic&q=sccache`;
+    core.info(`Querying Forgejo packages API: ${apiUrl}`);
+
+    const response = await fetch(apiUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to query package registry: ${response.status}`);
+    }
+
+    const sccachePackages = await response.json();
+
+    if (sccachePackages.length === 0) {
+      throw new Error('No sccache packages found in registry');
+    }
+
+    // Extract and sort versions
+    const versions = sccachePackages
+      .map((pkg: {version: string}) => pkg.version)
+      .filter((v: string) => v.startsWith('v'))
+      .sort((a: string, b: string) => {
+        const [aMajor, aMinor, aPatch] = a.substring(1).split('.').map(Number);
+        const [bMajor, bMinor, bPatch] = b.substring(1).split('.').map(Number);
+        return bMajor - aMajor || bMinor - aMinor || bPatch - aPatch;
+      });
+
+    if (versions.length === 0) {
+      throw new Error('No valid versions found in package registry');
+    }
+
+    const latestVersion = versions[0];
+    core.info(`Found latest version: ${latestVersion}`);
+    return latestVersion;
+  } catch (error) {
+    throw new Error(
+      `Failed to auto-detect version from Forgejo package registry: ${error}. Please specify a version explicitly using the "version" input.`
+    );
+  }
+}
+
 async function setup() {
   let version = core.getInput('version');
   if (version.length === 0) {
-    // If no version is specified, the latest version is used by default.
-    const token = core.getInput('token', {required: true});
-    const octokit = getOctokit(token, {baseUrl: 'https://api.github.com'});
-    const release = await octokit.rest.repos.getLatestRelease({
-      owner: 'mozilla',
-      repo: 'sccache'
-    });
-    version = release.data.tag_name;
+    // If no version is specified, get the latest version from our package registry
+    version = await getLatestVersionFromRegistry();
   }
   core.info(`try to setup sccache version: ${version}`);
 
@@ -86,7 +135,11 @@ async function setup() {
 async function downloadSCCache(version: string): Promise<Error | string> {
   const filename = getFilename(version);
 
-  const downloadUrl = `https://github.com/mozilla/sccache/releases/download/${version}/${filename}`;
+  // Get server and owner from inputs (with defaults from action.yml) or environment
+  const serverUrl = core.getInput('server') || process.env.GITHUB_SERVER_URL;
+  const owner = core.getInput('owner');
+
+  const downloadUrl = `${serverUrl}/api/packages/${owner}/generic/sccache/${version}/${filename}`;
   const sha256Url = `${downloadUrl}.sha256`;
   core.info(`sccache download from url: ${downloadUrl}`);
 
@@ -160,6 +213,9 @@ function getPlatform(): Error | string {
 }
 
 function getExtension(): string {
+  if (process.platform === 'win32') {
+    return 'zip';
+  }
   return 'tar.gz';
 }
 

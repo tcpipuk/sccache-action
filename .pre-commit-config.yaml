@@ -1,0 +1,66 @@
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+default_stages:
+  - pre-commit
+  - manual
+
+repos:
+  # File integrity and format checks - include these for all projects
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        exclude: ^dist/
+      - id: check-case-conflict
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-toml
+      - id: check-xml
+      - id: check-yaml
+      - id: destroyed-symlinks
+      - id: end-of-file-fixer
+      - id: fix-byte-order-marker
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+
+  # JavaScript/TypeScript local hooks
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: npm exec prettier -- --write
+        language: system
+        files: \.(js|jsx|ts|tsx)$
+        exclude: ^(dist/|node_modules/)
+
+      - id: eslint
+        name: eslint
+        entry: npm exec eslint -- --fix
+        language: system
+        files: \.(js|jsx|ts|tsx)$
+        exclude: ^(dist/|node_modules/)
+
+      - id: typescript-check
+        name: typescript check
+        entry: npx tsc --noEmit
+        language: system
+        files: \.(ts|tsx)$
+        require_serial: true
+        pass_filenames: false
+
+  # Markdown
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.18.1
+    hooks:
+      - id: markdownlint-cli2
+        args: ["--fix"]
+
+  # Conventional commits
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.2.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: ["--strict", "--force-scope", "--verbose"]
