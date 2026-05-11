@@ -143,7 +143,7 @@ them in your package registry. The workflow is included in this repository at
 3. It checks for new sccache releases and mirrors missing versions to your package registry
 4. Your workflows can then use the action with automatic version detection
 
-The mirroring workflow requires a `FORGEJO_TOKEN` secret with package write permissions.
+The mirroring workflow requires a `PACKAGE_TOKEN` secret with package write permissions.
 
 ## License
 
